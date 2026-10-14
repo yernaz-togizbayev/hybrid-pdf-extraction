@@ -1,0 +1,145 @@
+@startuml class-pipeline
+hide empty members
+title Pipeline, stages and LLM layer
+
+class Pipeline {
+  +stages: list[Stage]
+  +config: Config
+  +{static} from_config(config: Config): Pipeline
+  +run(path: str | Path): Document
+}
+
+class Config {
+  +llm: bool = True
+  +stages: list[str]
+  +text_model: str
+  +vision_model: str
+  +thresholds: dict[str, float]
+  +cache_dir: Path
+  +{static} from_toml(path): Config
+}
+
+class Context {
+  +config: Config
+  +llm: LLMClient | None
+  +cache: ResponseCache | None
+  +prompts: PromptRegistry
+  +trace: Logger
+}
+
+interface Stage <<Protocol>> {
+  +name: str
+  +run(doc: Document, ctx: Context): Document
+}
+
+class IngestStage
+class BoilerplateStage
+class RegionsStage
+class LayoutStage
+class StructureStage
+class CleanupStage
+class LLMResolutionStage
+class FinalizeStage
+
+interface TableExtractor <<Protocol>> {
+  +name: str
+  +extract(pdf: Path, page: int, region: BBox): list[TableCandidate]
+}
+class PyMuPDFTables
+class PdfplumberTables
+class CamelotLattice
+class CamelotStream
+
+interface OcrEngine <<Protocol>> {
+  +recognize(image: bytes): str
+}
+
+interface LLMClient <<Protocol>> {
+  +generate(model: str, prompt: str, schema: dict, images: list[bytes] = []): dict
+  +is_available(): bool
+}
+class OllamaClient {
+  +host: str
+  +temperature: float = 0
+  +seed: int
+}
+class FakeLLMClient <<test>> {
+  +responses: dict
+}
+
+class ResponseCache {
+  +directory: Path
+  +key(model, prompt_version, payload): str
+  +get(key: str): dict | None
+  +put(key: str, value: dict): None
+}
+
+class PromptRegistry {
+  +get(kind: RequestKind): Prompt
+}
+
+class Prompt {
+  +kind: RequestKind
+  +version: str
+  +template: str
+  +schema: dict
+  +render(payload: dict): str
+}
+
+class Chunker {
+  +max_tokens: int
+  +split(doc: Document): list[Chunk]
+}
+
+class "markdown" as MdExport <<module>> {
+  +to_markdown(doc: Document): str
+}
+class "json" as JsonExport <<module>> {
+  +to_json(doc: Document, indent): str
+}
+
+Pipeline o-- "*" Stage
+Pipeline --> Config
+Pipeline ..> Context : creates per run
+Context --> Config
+Context --> "0..1" LLMClient
+Context --> "0..1" ResponseCache
+Context --> PromptRegistry
+PromptRegistry *-- "*" Prompt
+
+Stage <|.. IngestStage
+Stage <|.. BoilerplateStage
+Stage <|.. RegionsStage
+Stage <|.. LayoutStage
+Stage <|.. StructureStage
+Stage <|.. CleanupStage
+Stage <|.. LLMResolutionStage
+Stage <|.. FinalizeStage
+
+RegionsStage o-- "*" TableExtractor
+RegionsStage o-- "0..1" OcrEngine
+TableExtractor <|.. PyMuPDFTables
+TableExtractor <|.. PdfplumberTables
+TableExtractor <|.. CamelotLattice
+TableExtractor <|.. CamelotStream
+
+LLMResolutionStage ..> LLMClient : uses via Context
+LLMResolutionStage ..> ResponseCache
+LLMResolutionStage ..> PromptRegistry
+LLMClient <|.. OllamaClient
+LLMClient <|.. FakeLLMClient
+
+Chunker ..> MdExport : renders block text
+
+note right of LLMResolutionStage
+  Groups pending requests by model:
+  text-model batch first, then vision batch.
+  One retry on invalid output, then the
+  classical decision stands.
+end note
+
+note bottom of Context
+  llm is None in no-LLM mode or
+  when Ollama is unreachable.
+end note
+@enduml

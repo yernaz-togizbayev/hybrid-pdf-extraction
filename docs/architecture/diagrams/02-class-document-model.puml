@@ -1,0 +1,186 @@
+@startuml class-document-model
+hide empty members
+title Document model (hybrid_pdf.model)
+
+class Document {
+  +meta: DocumentMeta
+  +pages: list[Page]
+  +blocks: list[Block]
+  +to_markdown(): str
+  +to_json(indent: int | None = 2): str
+  +chunks(max_tokens: int = 512): list[Chunk]
+  +sections(): list[Section]
+}
+
+class DocumentMeta {
+  +source: str
+  +sha256: str
+  +page_count: int
+  +pdf_metadata: dict[str, str]
+  +toc: list[tuple[int, str, int]]
+  +warnings: list[str]
+}
+
+class Page {
+  +number: int
+  +width: float
+  +height: float
+  +spans: list[Span]
+  +images: list[ImageInfo]
+  +drawings: list[BBox]
+  +has_text: bool {readOnly}
+}
+
+class Span {
+  +text: str
+  +bbox: BBox
+  +font: str
+  +size: float
+  +bold: bool
+  +italic: bool
+  +color: int
+  +page: int
+  +block: int
+  +line: int
+}
+
+class ImageInfo {
+  +bbox: BBox
+  +xref: int
+  +width: int
+  +height: int
+}
+
+class Block {
+  +id: str
+  +type: BlockType
+  +text: str
+  +pages: list[int]
+  +bboxes: list[BBox]
+  +level: int | None
+  +confidence: float
+  +provenance: list[Provenance]
+  +section_path: list[str]
+  +llm_requests: list[LLMRequest]
+  +degraded: bool
+  +table: TableData | None
+  +figure: FigureData | None
+}
+
+enum BlockType {
+  HEADING
+  PARAGRAPH
+  LIST_ITEM
+  TABLE
+  FIGURE
+  CAPTION
+  FORMULA
+  CODE
+  BOILERPLATE
+}
+
+class Provenance {
+  +stage: str
+  +method: str
+  +used_llm: bool
+}
+
+class LLMRequest {
+  +kind: RequestKind
+  +payload: dict
+  +schema: dict
+  +status: RequestStatus
+  +result: dict | None
+}
+
+enum RequestKind {
+  HEADING_DECISION
+  TABLE_TIEBREAK
+  TABLE_REPAIR
+  FIGURE_DESCRIPTION
+  CHART_READING
+}
+
+enum RequestStatus {
+  PENDING
+  RESOLVED
+  SKIPPED
+  FALLBACK
+}
+
+class TableData {
+  +cells: list[Cell]
+  +n_rows: int
+  +n_cols: int
+  +caption: str | None
+  +candidates: list[TableCandidate]
+  +chosen: int | None
+}
+
+class Cell {
+  +row: int
+  +col: int
+  +text: str
+  +row_span: int
+  +col_span: int
+  +is_header: bool
+}
+
+class TableCandidate {
+  +extractor: str
+  +cells: list[Cell]
+  +score: float
+}
+
+class FigureData {
+  +image_ref: str
+  +caption: str | None
+  +ocr_text: str | None
+  +description: str | None
+}
+
+class Section <<derived>> {
+  +heading: Block
+  +blocks: list[Block]
+  +children: list[Section]
+}
+
+class Chunk {
+  +text: str
+  +section_path: list[str]
+  +pages: list[int]
+  +block_ids: list[str]
+  +block_types: list[BlockType]
+}
+
+Document *-- "1" DocumentMeta
+Document *-- "*" Page
+Document *-- "*" Block : reading order
+Page *-- "*" Span
+Page *-- "*" ImageInfo
+Block --> "1" BlockType
+Block *-- "*" Provenance
+Block *-- "*" LLMRequest
+Block *-- "0..1" TableData
+Block *-- "0..1" FigureData
+LLMRequest --> RequestKind
+LLMRequest --> RequestStatus
+TableData *-- "*" Cell
+TableData *-- "*" TableCandidate
+TableCandidate *-- "*" Cell
+Document ..> Section : derives from\nheading levels
+Document ..> Chunk : creates
+Section o-- "*" Block
+
+note right of Block
+  The flat block list is the source of truth.
+  Boilerplate is flagged, never deleted.
+  Every change appends a Provenance entry.
+end note
+
+note bottom of TableData
+  Added in step 4 (Regions stage).
+  Step 1 implements Document to Provenance
+  and LLMRequest without status/result.
+end note
+@enduml

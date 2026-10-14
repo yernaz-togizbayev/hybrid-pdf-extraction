@@ -1,0 +1,38 @@
+@startuml state-llm-request
+title Life cycle of an LLMRequest
+
+[*] --> Pending : stage attaches request\n(classical decision already applied)
+
+Pending --> Skipped : LLM disabled or\nOllama unreachable
+Pending --> CacheLookup : stage 7 starts batch\nfor the request's model
+
+CacheLookup --> Resolved : cache hit
+CacheLookup --> Sent : cache miss
+
+Sent --> Resolved : valid answer\n/ store in cache
+Sent --> Retrying : invalid answer\nor timeout
+
+Retrying --> Resolved : valid answer\n/ store in cache
+Retrying --> Fallback : invalid again
+
+Resolved : status = RESOLVED
+Resolved : answer replaces classical decision
+Resolved : provenance(used_llm = true)
+
+Skipped : status = SKIPPED
+Skipped : classical decision stands
+
+Fallback : status = FALLBACK
+Fallback : classical decision stands
+Fallback : provenance note with the error
+
+Resolved --> [*]
+Skipped --> [*]
+Fallback --> [*]
+
+note right of CacheLookup
+  key = hash(model, prompt version, payload)
+  Same input and prompt version
+  give the same answer across runs.
+end note
+@enduml

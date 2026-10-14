@@ -1,0 +1,84 @@
+@startuml components
+title Components and external dependencies
+
+package "hybrid_pdf (PyPI package)" as PKG {
+  [CLI] as CLI
+  [Public API\nextract()] as API
+  [Pipeline] as PIPE
+  [Stages 1-8] as STAGES
+  [LLM layer\nclient, cache, prompts] as LLM
+  [Exporters\nMarkdown, JSON, chunks] as EXP
+  [Document model] as MODEL
+}
+
+package "PDF libraries" as PDFLIBS {
+  [PyMuPDF] as PYMUPDF
+  [pdfplumber] as PLUMBER
+  [Camelot\n(extra: tables)] as CAMELOT
+  [tabula-py\n(extra: tables)] as TABULA
+  [OCR engine\n(extra: ocr, choice open)] as OCR
+}
+
+package "bench (repo only)" as BENCH {
+  [Corpus manager] as CORPUS
+  [Ground-truth builder] as GT
+  [Extractor adapters] as ADAPT
+  [Metrics] as METRICS
+  [RAG prototype] as RAG
+  [QA generator] as QA
+  [Run recorder] as RUNS
+}
+
+package "Baseline loaders" as BASELINES {
+  [pymupdf4llm]
+  [LlamaIndex PDF reader]
+  [LangChain PDF loaders]
+}
+
+package "Evaluation tools" as EVALTOOLS {
+  [pandoc / LaTeXML\n(choice open)] as LATEX
+  [lxml] as LXML
+  [sentence-transformers] as ST
+  [Vector store\n(choice open)] as VS
+}
+
+node "Ollama server" as OLLAMA
+node "Java runtime" as JAVA
+cloud "arXiv" as ARXIV
+cloud "PubMed Central OA" as PMC
+
+CLI --> API
+API --> PIPE
+API --> EXP
+PIPE --> STAGES
+STAGES --> MODEL
+EXP --> MODEL
+STAGES --> LLM : stage 7 only
+STAGES --> PDFLIBS
+TABULA --> JAVA
+LLM --> OLLAMA : ollama-python
+
+RUNS --> METRICS
+RUNS --> RAG
+RUNS --> CORPUS
+RAG --> ADAPT
+METRICS --> GT
+QA --> GT
+ADAPT --> API : public API only
+ADAPT --> PDFLIBS : table baselines
+ADAPT --> BASELINES
+CORPUS --> ARXIV
+CORPUS --> PMC
+GT --> LATEX
+GT --> LXML
+RAG --> ST
+RAG --> VS
+RAG --> OLLAMA
+QA --> OLLAMA
+
+note bottom of OLLAMA
+  Runs locally. No cloud LLM APIs.
+  Documents never leave the machine
+  during extraction.
+end note
+@enduml

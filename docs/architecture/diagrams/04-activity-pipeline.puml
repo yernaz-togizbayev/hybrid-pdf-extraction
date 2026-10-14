@@ -1,0 +1,94 @@
+@startuml activity-pipeline
+title Pipeline run for one PDF
+
+start
+:Create empty Document\n(meta.source = path);
+
+partition "1 Ingest" {
+  if (file exists, opens, not encrypted?) then (yes)
+    :Read spans, images, drawings,\nTOC, metadata, sha256;
+  else (no)
+    :raise ExtractionError;
+    stop
+  endif
+  if (page has images but no text?) then (yes)
+    :Warning: no text layer,\npage skipped;
+  endif
+}
+
+partition "2 Boilerplate" {
+  :Flag repeated headers/footers,\npage numbers, arXiv stamp;
+  note right: flagged, never deleted
+}
+
+partition "3 Regions" {
+  :Find table and figure regions\n(captions, drawings, image boxes);
+  :Run table extractors\n(ensemble of candidates);
+  :Score candidates heuristically;
+  if (clear winner?) then (yes)
+    :Choose best candidate;
+  else (tie)
+    :Choose best by score\n+ attach TABLE_TIEBREAK request;
+  endif
+  :OCR text inside figures;
+  :Attach FIGURE_DESCRIPTION request\nper figure;
+}
+
+partition "4 Layout" {
+  :Detect columns and reading order;
+  :Group spans into lines, lines into paragraphs;
+  :Merge paragraphs across columns and pages;
+}
+
+partition "5 Structure" {
+  :Score heading, caption, list,\nformula and code signals;
+  if (confidence >= threshold?) then (yes)
+    :Keep classical decision;
+  else (no)
+    :Keep classical decision\n+ attach HEADING_DECISION request;
+  endif
+}
+
+partition "6 Cleanup" {
+  :Dehyphenate, fix ligatures,\nnormalize unicode and whitespace;
+}
+
+partition "7 LLM resolution" {
+  if (llm enabled and Ollama reachable?) then (yes)
+    :Text-model batch\n(heading decisions, table tie-breaks and repair);
+    :Vision-model batch\n(figure descriptions, chart reading);
+    :Apply valid answers,\nappend provenance (used_llm = true);
+    note right
+      Each request: cache lookup first.
+      On a miss, ask the model; one retry
+      on invalid output, then the classical
+      decision stands (see state diagram).
+    end note
+  else (no)
+    :Mark all requests SKIPPED;
+    note right: classical results stand
+  endif
+}
+
+partition "8 Finalize" {
+  :Recompute block order and section paths;
+}
+
+:Return Document;
+switch (requested format?)
+case (md)
+  :to_markdown();
+case (json)
+  :to_json();
+case (chunks)
+  :chunks(max_tokens);
+endswitch
+stop
+
+note right
+  Any other exception inside a stage:
+  previous result kept, degraded = true
+  on the block or a warning in meta,
+  and the run continues.
+end note
+@enduml

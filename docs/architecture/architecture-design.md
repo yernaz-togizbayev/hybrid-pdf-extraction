@@ -44,33 +44,52 @@ The project has three subsystems:
 2. `bench/rag`, the RAG/QA prototype.
 3. `bench/`, the evaluation harness with corpus, ground truth, extractor adapters, metrics and runs.
 
+The components diagram `diagrams/01-components.puml` shows these subsystems with their external tools.
+
 ## 4. Document model
 
-One data structure is shared by everything. Every stage reads and writes it, and every export is generated from it.
+One data structure is shared by everything. Every stage reads and writes it, and every export is generated from it. The class diagram is `diagrams/02-class-document-model.puml`.
 
 ```
 Document
-├── meta: source path, sha256, page_count, pdf_metadata, toc, warnings
-├── pages: [Page]      number, width, height, spans: [Span], images, drawings
-└── blocks: [Block]    flat list in reading order
+├── meta: DocumentMeta     source, sha256, page_count, pdf_metadata, toc, warnings
+├── pages: [Page]          number, width, height, spans, images, drawings
+├── blocks: [Block]        flat list in reading order
+├── to_markdown(), to_json(), chunks(max_tokens) -> [Chunk]
+└── sections() -> [Section]   derived tree, built from heading levels on demand
 
-Span:  text, bbox, font, size, bold, italic, color, page
+Span:       text, bbox, font, size, bold, italic, color, page, block, line
+ImageInfo:  bbox, xref, width, height
 
 Block
 ├── id, type, text, pages, bboxes
-├── type: Heading | Paragraph | ListItem | Table | Figure | Caption
-│         | Formula | Code | Boilerplate
-├── level            (Heading only)
+├── type: HEADING | PARAGRAPH | LIST_ITEM | TABLE | FIGURE | CAPTION
+│         | FORMULA | CODE | BOILERPLATE
+├── level            headings only
 ├── confidence       0..1
-├── provenance       [(stage, method, used_llm)]
+├── provenance       [Provenance(stage, method, used_llm)]
 ├── section_path     e.g. ["3", "3.2"]
-├── llm_requests     [LLMRequest]   pending, filled by stages
-├── degraded         bool           true if a stage failed on this block
-└── type-specific:
-      Table:  cells (grid with row and column spans), caption,
-              candidates: [(extractor, grid, score)], chosen
-      Figure: image_ref, caption, ocr_text, description
+├── llm_requests     [LLMRequest]
+├── degraded         true if a stage failed on this block
+├── table            TableData, TABLE blocks only
+└── figure           FigureData, FIGURE blocks only
+
+TableData:       cells [Cell], n_rows, n_cols, caption,
+                 candidates [TableCandidate], chosen (index or None)
+Cell:            row, col, text, row_span, col_span, is_header
+TableCandidate:  extractor, cells [Cell], score
+FigureData:      image_ref, caption, ocr_text, description
+
+LLMRequest:  kind, payload, schema, status, result
+  kind:      HEADING_DECISION | TABLE_TIEBREAK | TABLE_REPAIR
+             | FIGURE_DESCRIPTION | CHART_READING
+  status:    PENDING | RESOLVED | SKIPPED | FALLBACK
+
+Section:  heading, blocks, children
+Chunk:    text, section_path, pages, block_ids, block_types
 ```
+
+`Span.block` and `Span.line` keep PyMuPDF's own grouping of spans into blocks and lines, which the Layout stage uses as one signal among others. The table and figure parts are added together with the Regions stage. Step 1 of the development order (section 10) builds everything else, with `LLMRequest` still lacking `status` and `result`.
 
 Three rules apply to the model:
 - The flat block list is the source of truth. The section tree is derived from the heading levels whenever it is needed.
@@ -87,7 +106,20 @@ class Stage(Protocol):
     def run(self, doc: Document, ctx: Context) -> Document: ...
 ```
 
-`Context` holds the config (enabled stages, thresholds, model names), the LLM client, the response cache and a trace logger. The list of stages comes from the config, so an ablation run can switch off a stage or the LLM without code changes.
+The class diagram for this section is `diagrams/03-class-pipeline.puml`.
+
+`Pipeline(stages, config)` creates an empty `Document` for the input path, builds a fresh `Context` and runs the stages in order. `Pipeline.from_config(config)` looks the stage names up in a registry.
+
+`Config` holds the settings of a run and can be loaded from a TOML file:
+
+```
+Config:   llm (bool), stages [str], text_model, vision_model,
+          thresholds {name: float}, cache_dir
+Context:  config, llm (LLMClient or None), cache (ResponseCache or None),
+          prompts (PromptRegistry), trace (logger)
+```
+
+The list of stages comes from the config, so an ablation run can switch off a stage or the LLM without code changes. `Context.llm` is `None` in no-LLM mode, and also when Ollama cannot be reached. The pipeline checks that once at the start of a run and warns once.
 
 ### 5.2 Stages
 
@@ -102,21 +134,50 @@ class Stage(Protocol):
 | 7 | LLM resolution | Process all pending LLMRequests: the text-model batch first (heading decisions, table tie-breaks and repair), then the vision-model batch (figure descriptions, chart reading) | Ollama with JSON-schema structured output |
 | 8 | Finalize | Recompute section_path and block order after the LLM corrections | |
 
+The activity diagram `diagrams/04-activity-pipeline.puml` shows the whole run, including where low confidence turns into an LLM request.
+
+Table extraction and OCR sit behind two small interfaces, so the tools can be swapped and compared:
+
+```python
+class TableExtractor(Protocol):
+    name: str
+    def extract(self, pdf: Path, page: int, region: BBox) -> list[TableCandidate]: ...
+
+class OcrEngine(Protocol):
+    def recognize(self, image: bytes) -> str: ...
+```
+
+The Regions stage holds a list of table extractors (PyMuPDF, pdfplumber, Camelot lattice, Camelot stream) and at most one OCR engine.
+
 ### 5.3 LLM handling
 
-- Stages never call the LLM themselves. They attach an `LLMRequest(kind, payload, schema)` to a block.
-- Requests are grouped by model, so each model is loaded once per document or batch.
-- Temperature is 0 and the seed is fixed. Responses are cached on disk under a hash of the model, the prompt version and the input.
+The LLM layer lives in the `llm` package and is used only by the LLM resolution stage:
+
+```python
+class LLMClient(Protocol):
+    def generate(self, model: str, prompt: str, schema: dict,
+                 images: list[bytes] = []) -> dict: ...
+    def is_available(self) -> bool: ...
+```
+
+`OllamaClient` implements it through `ollama-python`, and tests use a `FakeLLMClient` with fixed answers. `ResponseCache` stores answers on disk. `PromptRegistry` returns the `Prompt` for each request kind, with its version, template and JSON schema.
+
+- Stages never call the LLM themselves. They apply their classical decision first and then attach an `LLMRequest` to the block, with the status `PENDING`.
+- Requests are grouped by model: the text-model batch runs first, then the vision-model batch, so each model is loaded once per document or batch.
+- Temperature is 0 and the seed is fixed. The cache key is a hash of the model, the prompt version and the payload, so the same input gives the same answer across runs.
 - Prompts are versioned files inside the package. The prompt version is part of the cache key and of the run metadata.
-- If a response is invalid, the request is retried once. If it fails again, the classical decision stays and a provenance note records what happened.
-- In no-LLM mode (`llm=False`, or Ollama is not reachable) all requests are skipped and the classical results stay. This mode is also the main ablation variant.
+- A valid answer replaces the classical decision, sets the status to `RESOLVED` and adds a provenance entry with `used_llm = true`.
+- If an answer is invalid or times out, the request is retried once. If it fails again, the status becomes `FALLBACK`, the classical decision stays, and a provenance note records the error.
+- In no-LLM mode all requests get the status `SKIPPED` and the classical results stay. This mode is also the main ablation variant.
 - The text model and the vision model are chosen by experiment on the dev split, and the choice is logged in DECISIONS.md.
+
+The state diagram `diagrams/05-state-llm-request.puml` shows the life cycle of one request.
 
 ### 5.4 Exports
 
 - Markdown: headings, paragraphs and GFM tables. Each figure becomes a block with its caption, OCR text and description. Boilerplate is left out.
 - JSON: the full document model, which the evaluation reads.
-- Chunks: chunks that follow the section structure and carry metadata (section_path, pages, block types). A table or figure is never split, and no chunk crosses the boundary between two top-level sections.
+- Chunks: a `Chunker(max_tokens)` turns the document into `Chunk` objects that follow the section structure and carry metadata (section_path, pages, block ids, block types). A table or figure is never split, and no chunk crosses the boundary between two top-level sections.
 
 ### 5.5 Public API and CLI
 
@@ -193,6 +254,8 @@ tests/
 data/manifest.csv
 results/                 gitignored, except summary tables
 ```
+
+Imports follow four rules. Stages never import each other. Only the LLM resolution stage uses the `llm` package; all other stages attach requests to blocks. From `hybrid_pdf`, `bench` uses only the public API, and `hybrid_pdf` never imports `bench`.
 
 There are two optional extras, `hybrid-pdf-extraction[ocr]` and `[tables]` (Camelot and tabula; tabula needs Java). The dependencies of `bench` live in a separate dependency group and are not a package extra.
 

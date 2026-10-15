@@ -286,7 +286,7 @@ Each step gets its own implementation plan.
 
 ## 11. Open questions
 
-- How many categories: to be confirmed with Dr. Lux (D-001).
+- How many categories: not fixed yet (D-001).
 - Which text and vision models: chosen on dev data.
 - Which OCR engine: Tesseract or a pip-installable alternative such as RapidOCR, compared while building the figures component.
 - Which LaTeX converter: pandoc or LaTeXML, compared during the ground-truth work.

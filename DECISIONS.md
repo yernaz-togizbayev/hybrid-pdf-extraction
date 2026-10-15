@@ -21,7 +21,7 @@ Each entry follows the same order: context &rightarrow; options considered &righ
 - Physics papers are full of formulas. I expect them to be the weakest category, which shows where the pipeline stops working.
 - With three categories the annotation work stays manageable.
 
-**Status:** Provisional. The number of categories still has to be confirmed with Dr. Lux at the next appointment.
+**Status:** Provisional. The number of categories is not fixed yet.
 
 ## D-002: Ground truth source for evaluation (2026-10-10)
 
@@ -84,4 +84,4 @@ Each entry follows the same order: context &rightarrow; options considered &righ
 
 **Known cost:** Some companies avoid AGPL dependencies, which may limit adoption outside the thesis.
 
-**Status:** Accepted. To be mentioned to Dr. Lux in the next status update.
+**Status:** Accepted.

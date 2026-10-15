@@ -64,3 +64,24 @@ Each entry follows the same order: context &rightarrow; options considered &righ
 - Option 3 for everything would mean aligning the outputs of several extractors, which is complex, and every page would cost N times as much. Extractors disagree most on tables, so that is where the ensemble is worth its cost.
 
 **Status:** Accepted. The confidence thresholds still have to be calibrated on development data.
+
+## D-004: License of the package (2026-10-11)
+
+**Context:** The repo started with an MIT license. The Ingest stage is built on PyMuPDF, which is available under AGPL-3.0 or a commercial license from Artifex. Whoever distributes a program combined with PyMuPDF has to offer the source of the whole program under AGPL to the people who receive it. For modified versions, the same applies to users who reach the program over a network.
+
+**Options considered:**
+- A) Relicense the package to AGPL-3.0 and keep PyMuPDF
+- B) Keep MIT and replace PyMuPDF with permissive libraries (pdfplumber and pdfminer.six under MIT, pypdfium2 under Apache-2.0/BSD)
+- C) Keep MIT and depend on PyMuPDF anyway
+
+**Decision:** A, with the license AGPL-3.0-or-later.
+
+**Rationale:**
+- PyMuPDF delivers font names, sizes, style flags, images, vector drawings and the TOC from one fast library, and the architecture uses all of them.
+- B would make ingest slower and remove PyMuPDF's `find_tables` from the table ensemble.
+- C is legally possible, because MIT code may depend on an AGPL library. But the package cannot run without PyMuPDF, so anyone who distributes or deploys it is bound by AGPL anyway. An MIT label would promise users a freedom they do not get.
+- The repo is public anyway, so publishing the source costs nothing extra.
+
+**Known cost:** Some companies avoid AGPL dependencies, which may limit adoption outside the thesis.
+
+**Status:** Accepted. To be mentioned to Dr. Lux in the next status update.

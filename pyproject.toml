@@ -1,0 +1,36 @@
+[project]
+name = "hybrid-pdf-extraction"
+version = "0.1.0"
+description = "Hybrid PDF-to-text extraction for RAG with local LLMs"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Yernaz Togizbayev" }]
+requires-python = ">=3.11"
+dependencies = ["pymupdf>=1.26"]
+
+[project.scripts]
+hybrid-pdf = "hybrid_pdf.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.18,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "hybrid_pdf"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.format]
+exclude = ["*.md"]  # code in docs is illustrative and edited by hand
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,7 +1,7 @@
 # Hybrid PDF Extraction: Architecture Design
 
-**Date:** 2026-10-10
-**Status:** Approved (2026-10-10)
+**Date:** 10.10.2026
+**Status:** Proposed, to be discussed with supervisor on 29.10.2026
 **Related:** `DECISIONS.md` D-001 to D-003
 
 ## 1. Purpose and success criteria

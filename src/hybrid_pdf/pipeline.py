@@ -30,15 +30,15 @@ class Config:
 
         if unknown:
             raise ValueError(f"unknown config keys: {sorted(unknown)}")
-        
+
         if "llm" in data and not isinstance(data["llm"], bool):
             raise ValueError("config key 'llm' must be true or false")
-        
+
         stages = data.get("stages", list(DEFAULT_STAGES))
 
         if not isinstance(stages, list) or not all(isinstance(s, str) for s in stages):
             raise ValueError("config key 'stages' must be a list of stage names")
-        
+
         return cls(llm=data.get("llm", True), stages=stages)
 
 
@@ -69,7 +69,7 @@ class Pipeline:
     def run(self, path: str | Path) -> Document:
         doc = Document(meta=DocumentMeta(source=str(path)))
         ctx = Context(config=self.config)
-        
+
         for stage in self.stages:
             name = getattr(stage, "name", type(stage).__name__)
             try:
